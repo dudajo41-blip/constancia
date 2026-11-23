@@ -101,6 +101,16 @@ ul.plain li{margin:4px 0}
 .setrow:first-child{border-top:0}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translate(-50%,20px);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;opacity:0;pointer-events:none;z-index:80;max-width:90%;text-align:center}
 .toast.on{opacity:1;transform:translate(-50%,0)}
+/* táctil y detalles */
+.chip{min-height:44px}
+nav button{min-height:44px}
+.food{min-height:52px}
+.entry button{min-height:44px;min-width:64px}
+.btn{min-height:48px}
+.btn.small{min-height:44px}
+details.warm{margin:6px 0 4px;border:1px solid var(--line);border-radius:8px;padding:2px 12px}
+details.warm summary{cursor:pointer;font-weight:600;font-size:14px;min-height:44px;display:flex;align-items:center}
+.entry>span{min-width:0;overflow-wrap:anywhere}
 /* inicio */
 .hero-top{display:flex;align-items:center;gap:14px}
 .ring{flex:none;background:none;border:0;padding:0;cursor:pointer;border-radius:50%;line-height:0}
@@ -126,4 +136,4 @@ ul.plain li{margin:4px 0}
 .goal-top{display:flex;justify-content:space-between;gap:10px;font-size:15px}
 .goal-top b{font-variant-numeric:tabular-nums;white-space:nowrap}
 .goal .bar{margin:8px 0 0}
-@media (prefers-reduced-motion:no-preference){ .toast{transition:opacity .2s,transform .2s} .bar i{transition:width .3s} }
+@media (prefers-reduced-motion:no-preference){ .toast{transition:opacity .2s,transform .2s} .bar i{transition:width .3s} .btn:active,.chip:active,.food:active{transform:scale(.98)} }
