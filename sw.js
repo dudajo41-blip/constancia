@@ -1,6 +1,6 @@
 /* Service worker: guarda la app en el teléfono para que abra sin internet.
    Al cambiar cualquier archivo de la app, sube el número de VERSION. */
-var VERSION='constancia-v3';
+var VERSION='constancia-v4';
 var ARCHIVOS=['./','index.html','styles.css','app.js','manifest.webmanifest','icon-192.png','icon-512.png'];
 
 self.addEventListener('install',function(e){

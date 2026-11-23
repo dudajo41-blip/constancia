@@ -61,7 +61,7 @@ var CYCLE=5;
 /* ================= Estado ================= */
 var S;
 function defaults(){
-  return {v:2,settings:{peso:65.8,metaProt:105,metaAuto:true,cycleStart:null,levels:{},restSec:90},
+  return {v:2,settings:{peso:65.8,metaProt:105,metaAuto:true,cycleStart:null,levels:{},restSec:90,backupAt:null,celebrated:{},onboardDone:false},
           sessions:{},tests:{},habits:{},protein:{},draft:null};
 }
 function load(){
@@ -74,6 +74,7 @@ function load(){
         d.settings=Object.assign(d.settings,o.settings||{});
         d.sessions=o.sessions||{}; d.tests=o.tests||{}; d.habits=o.habits||{};
         d.protein=o.protein||{}; d.draft=o.draft||null;
+        if(!d.settings.celebrated||typeof d.settings.celebrated!=='object'){d.settings.celebrated={};}
       }
     }
   }catch(e){}
@@ -97,7 +98,7 @@ function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 function r1(v){return Math.round(v*10)/10;}
 function defaultSess(){var w=new Date().getDay();return w===6?'A':(w===0?'B':'C');}
 var toastTimer;
-function toast(t){var el=$('toast');el.textContent=t;el.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(function(){el.classList.remove('on');},2200);}
+function toast(t,ms){var el=$('toast');el.textContent=t;el.classList.add('on');clearTimeout(toastTimer);toastTimer=setTimeout(function(){el.classList.remove('on');},ms||2200);}
 
 /* ================= Consultas ================= */
 function sessionsList(){
@@ -169,6 +170,64 @@ function metaText(id){
 }
 function protToday(){return S.protein[today()]||[];}
 function protTotal(date){return (S.protein[date]||[]).reduce(function(a,x){return a+x.g;},0);}
+function weekStreak(){
+  var counts=weekCounts(),mon=mondayOf(new Date()),streak=0,i,d;
+  for(i=1;i<60;i++){d=new Date(mon.getFullYear(),mon.getMonth(),mon.getDate()-7*i);if((counts[ymd(d)]||0)>=3){streak++;}else{break;}}
+  if((counts[ymd(mon)]||0)>=3){streak++;}
+  return streak;
+}
+/* días seguidos con la meta de proteína; si hoy aún no llegas, cuenta desde ayer */
+function protStreak(){
+  var meta=S.settings.metaProt,n=0,i,d;
+  if(!(meta>0)){return 0;}
+  for(i=0;i<400;i++){
+    d=new Date();d.setDate(d.getDate()-i);
+    if(protTotal(ymd(d))>=meta){n++;}else if(i>0){break;}
+  }
+  return n;
+}
+/* dominadas estrictas: series en nivel Estrictas (2) o el máximo de los tests */
+function bestStrictPull(){
+  var m=0;
+  sessionsList().forEach(function(s){
+    ['dom-pro','dom-sup'].forEach(function(id){
+      if(s.levels&&s.levels[id]===2){((s.sets&&s.sets[id])||[]).forEach(function(v){if(isNum(v)&&v>m){m=v;}});}
+    });
+  });
+  Object.keys(S.tests).forEach(function(k){var v=S.tests[k]&&S.tests[k].dom;if(isNum(v)&&v>m){m=v;}});
+  return m;
+}
+function bestPushUps(){
+  var m=0;
+  Object.keys(S.tests).forEach(function(k){var v=S.tests[k]&&S.tests[k].fle;if(isNum(v)&&v>m){m=v;}});
+  sessionsList().forEach(function(s){((s.sets&&s.sets.flex)||[]).forEach(function(v){if(isNum(v)&&v>m){m=v;}});});
+  return m;
+}
+function goalsList(){
+  return [
+    {id:'dom1',n:'Primera dominada estricta',cur:bestStrictPull(),goal:1},
+    {id:'dom10',n:'10 dominadas estrictas',cur:bestStrictPull(),goal:10},
+    {id:'fle25',n:'25 flexiones seguidas',cur:bestPushUps(),goal:25},
+    {id:'prot7',n:'7 días seguidos con la meta de proteína',cur:protStreak(),goal:7},
+    {id:'sem4',n:'4 semanas seguidas con 3 sesiones',cur:weekStreak(),goal:4}
+  ];
+}
+/* avisa una sola vez cada meta cumplida */
+function celebrate(base){
+  var c=S.settings.celebrated,nuevas=[];
+  goalsList().forEach(function(g){if(g.cur>=g.goal&&!c[g.id]){c[g.id]=today();nuevas.push(g.n);}});
+  if(nuevas.length){save();toast((base?base+' ':'')+'Meta cumplida: '+nuevas.join(', ')+'.',5000);}
+  else if(base){toast(base);}
+}
+function onboardItems(){
+  var hasProt=Object.keys(S.protein).some(function(k){return (S.protein[k]||[]).length>0;});
+  return [
+    {t:'Hacer el test de partida',ok:Object.keys(S.tests).length>0,tab:'progreso'},
+    {t:'Guardar tu primera sesión',ok:sessionsList().length>0,tab:'hoy',to:'startBtn'},
+    {t:'Registrar proteína en un día',ok:hasProt,tab:'prot'},
+    {t:'Descargar un respaldo',ok:!!S.settings.backupAt,tab:'plan'}
+  ];
+}
 
 /* ================= Gráficos ================= */
 function barChart(vals,labs,goal,ariaLabel){
@@ -210,23 +269,56 @@ function lineChart(pts,ariaLabel){
 
 /* ================= Render: Hoy ================= */
 var curSess=defaultSess();
+function ring(tot,meta){
+  var pct=meta>0?tot/meta:0,p=clamp(pct,0,1),C=2*Math.PI*52,ok=meta>0&&tot>=meta;
+  return '<svg viewBox="0 0 120 120" width="124" height="124" aria-hidden="true">'+
+    '<circle cx="60" cy="60" r="52" fill="none" stroke="var(--line)" stroke-width="10"/>'+
+    '<circle cx="60" cy="60" r="52" fill="none" stroke="'+(ok?'var(--ok)':'var(--accent)')+'" stroke-width="10" stroke-linecap="round" stroke-dasharray="'+C.toFixed(1)+'" stroke-dashoffset="'+(C*(1-p)).toFixed(1)+'" transform="rotate(-90 60 60)"/>'+
+    '<text x="60" y="60" text-anchor="middle" font-size="28" font-weight="700" fill="var(--ink)" font-family="var(--display)">'+Math.round(tot)+' g</text>'+
+    '<text x="60" y="80" text-anchor="middle" font-size="15" fill="'+(ok?'var(--ok)':'var(--muted)')+'" font-weight="700">'+Math.round(pct*100)+'%</text></svg>';
+}
 function renderHoy(){
   var ci=cycleInfo(),counts=weekCounts(),mon=mondayOf(new Date()),n=counts[ymd(mon)]||0;
   var done={}; sessionsList().forEach(function(s){done[s.date]=true;});
-  var wk='',i,d,k,t=today();
+  var wk='',i,d,k,t=today(),h='';
   for(i=0;i<7;i++){d=new Date(mon.getFullYear(),mon.getMonth(),mon.getDate()+i);k=ymd(d);
     wk+='<div class="'+(done[k]?'done':(k===t?'today':''))+'">'+DIAS[i]+'</div>';}
   var fase=ci.deload?'Semana suave: una serie menos por ejercicio y sin llegar al límite. Aprovecha de repetir el test en Progreso.'
                     :'Semana de progresión: intenta sumar una repetición respecto a la última vez.';
-  var h='<div class="card"><h2>Esta semana</h2><div class="wk">'+wk+'</div>'+
+
+  /* Primeros pasos: se oculta para siempre al completar los 4 */
+  if(!S.settings.onboardDone){
+    var items=onboardItems(),pend=items.filter(function(x){return !x.ok;}).length;
+    if(!pend){S.settings.onboardDone=true;save();}
+    else{
+      h+='<div class="card"><h2>Primeros pasos</h2><p class="muted" style="margin:0 0 6px">'+(items.length-pend)+' de '+items.length+' listos.</p><ul class="steps">';
+      items.forEach(function(x){
+        h+='<li class="'+(x.ok?'ok':'')+'">'+(x.ok?'<span class="ck" aria-hidden="true">✓</span><span>'+esc(x.t)+'<span class="sr"> (listo)</span></span>'
+          :'<button data-act="goto" data-tab="'+x.tab+'"'+(x.to?' data-to="'+x.to+'"':'')+'><span class="ck" aria-hidden="true"></span><span>'+esc(x.t)+'</span><span class="go" aria-hidden="true">›</span></button>')+'</li>';
+      });
+      h+='</ul></div>';
+    }
+  }
+
+  /* Parte alta: anillo de proteína, racha y botón principal */
+  var tot=protTotal(t),meta=S.settings.metaProt,streak=weekStreak(),dr=S.draft&&S.draft.date===t;
+  h+='<div class="card hero"><div class="hero-top">'+
+    '<button class="ring" data-act="goto" data-tab="prot" aria-label="Proteína de hoy: '+Math.round(tot)+' de '+meta+' gramos. Ir a Proteína">'+ring(tot,meta)+'</button>'+
+    '<div class="hero-side"><div class="kicker">Proteína de hoy</div><div>'+Math.round(tot)+' de '+meta+' g</div>'+
+    '<div class="streak"><b>'+streak+'</b><span>'+(streak===1?'semana seguida':'semanas seguidas')+' con 3 sesiones</span></div>'+
+    '<div class="muted">Esta semana: '+n+' de 3</div></div></div>';
+  if(!dr&&S.sessions[t+'_'+curSess]){h+='<div class="msg">Ya guardaste esta sesión hoy. Si la repites, se reemplaza.</div>';}
+  if(dr){
+    h+='<button class="btn big" id="startBtn" data-act="resume">Continuar sesión '+esc(S.draft.sess)+'</button>'+
+       '<button class="btn warn small" style="margin-top:10px" data-act="discard">Descartar sesión en curso</button>';
+  }else{
+    h+='<button class="btn big" id="startBtn" data-act="start">Empezar sesión '+esc(curSess)+'</button>';
+  }
+  h+='</div>';
+
+  h+='<div class="card"><h2>Esta semana</h2><div class="wk">'+wk+'</div>'+
     '<p class="muted" style="margin:8px 0 0">'+n+' de 3 sesiones'+(n>=3?'. Meta cumplida.':'.')+'</p>'+
     '<p style="margin:10px 0 0"><b>Semana '+ci.week+' de '+CYCLE+'.</b> '+fase+'</p></div>';
-
-  if(S.draft&&S.draft.date===t){
-    h+='<div class="card"><h2>Sesión en curso</h2><p class="muted">'+esc(SES[S.draft.sess].n)+' sin terminar.</p>'+
-       '<button class="btn" data-act="resume">Continuar sesión</button>'+
-       '<button class="btn warn" data-act="discard">Descartar</button></div>';
-  }
 
   h+='<div class="card"><h2>Sesión de hoy</h2><div class="chips" role="group" aria-label="Elegir sesión">';
   Object.keys(SES).forEach(function(c){h+='<button class="chip" data-act="sess" data-s="'+c+'" aria-pressed="'+(c===curSess)+'">'+SES[c].n+'</button>';});
@@ -237,15 +329,12 @@ function renderHoy(){
        '<div class="meta">'+(lv?esc(lv)+'. ':'')+metaText(id)+'</div>'+
        '<div class="last">'+(last?'Última vez: '+last.sets.filter(isNum).join('-'):'Primera vez')+' · Meta: '+suggest(id,0)+(e.unit==='seg'?' s':'')+'</div></div>';
   });
-  h+='</div>';
-  if(S.sessions[t+'_'+curSess]){h+='<div class="msg">Ya guardaste esta sesión hoy. Si la repites, se reemplaza.</div>';}
-  h+='<button class="btn" data-act="start">Empezar sesión</button></div>';
+  h+='</div></div>';
 
   var hb=S.habits[t]||{};
   h+='<div class="card"><h2>Hábitos de hoy</h2>'+
      '<label class="hab"><input type="checkbox" data-act="hab" data-k="sueno"'+(hb.sueno?' checked':'')+'><span>Dormí al menos 7 horas</span></label>'+
-     '<label class="hab"><input type="checkbox" data-act="hab" data-k="oficina"'+(hb.oficina?' checked':'')+'><span>Hice mi ronda de la oficina</span></label>'+
-     '<p class="muted" style="margin:10px 0 0">Proteína de hoy: <b>'+Math.round(protTotal(t))+' de '+S.settings.metaProt+' g</b></p></div>';
+     '<label class="hab"><input type="checkbox" data-act="hab" data-k="oficina"'+(hb.oficina?' checked':'')+'><span>Hice mi ronda de la oficina</span></label></div>';
   $('sec-hoy').innerHTML=h;
 }
 
@@ -399,7 +488,7 @@ function parkAction(act,el){
     d.order.forEach(function(x){var v=(d.sets[x]||[]).filter(isNum);if(v.length){any=true;sets[x]=v;}});
     if(!any){toast('Registra al menos una serie.');return;}
     S.sessions[d.date+'_'+d.sess]={date:d.date,sess:d.sess,sets:sets,levels:d.levels,note:d.note,ts:Date.now()};
-    S.draft=null;save();closePark();renderProgreso();toast('Sesión guardada.');return;
+    S.draft=null;save();closePark();renderProgreso();celebrate('Sesión guardada.');return;
   }
   save();renderPark();tickRest();
 }
@@ -432,19 +521,24 @@ function renderProt(){
 }
 function addProt(n,g){
   var t=today(); S.protein[t]=S.protein[t]||[];
-  S.protein[t].push({n:n,g:g,ts:Date.now()}); save(); renderProt(); renderHoy();
+  S.protein[t].push({n:n,g:g,ts:Date.now()}); save(); renderProt(); renderHoy(); renderProgreso();
 }
 
 /* ================= Render: Progreso ================= */
 var chartEx='dom-pro';
 function renderProgreso(){
-  var ss=sessionsList(),counts=weekCounts(),mon=mondayOf(new Date()),streak=0,i,d;
-  for(i=1;i<60;i++){d=new Date(mon.getFullYear(),mon.getMonth(),mon.getDate()-7*i);if((counts[ymd(d)]||0)>=3){streak++;}else{break;}}
-  if((counts[ymd(mon)]||0)>=3){streak++;}
+  var ss=sessionsList(),counts=weekCounts(),mon=mondayOf(new Date()),streak=weekStreak(),i,d;
   var vals=[],labs=[];
   for(i=7;i>=0;i--){d=new Date(mon.getFullYear(),mon.getMonth(),mon.getDate()-7*i);vals.push(counts[ymd(d)]||0);labs.push(pad(d.getDate())+'/'+pad(d.getMonth()+1));}
   var h='<div class="card"><h2>Resumen</h2><div class="grid"><div class="stat"><b>'+ss.length+'</b><span>sesiones guardadas</span></div>'+
         '<div class="stat"><b>'+streak+'</b><span>semanas seguidas con 3 sesiones</span></div></div></div>';
+  h+='<div class="card"><h2>Metas</h2>';
+  goalsList().forEach(function(g){
+    var ok=g.cur>=g.goal,shown=Math.min(g.cur,g.goal),pc=Math.round(shown/g.goal*100);
+    h+='<div class="goal"><div class="goal-top"><span>'+esc(g.n)+(ok?'<span class="tag">Cumplida</span>':'')+'</span><b>'+shown+' / '+g.goal+'</b></div>'+
+       '<div class="bar'+(ok?' over':'')+'" role="progressbar" aria-valuemin="0" aria-valuemax="'+g.goal+'" aria-valuenow="'+shown+'" aria-label="'+esc(g.n)+'"><i style="width:'+pc+'%"></i></div></div>';
+  });
+  h+='<p class="muted" style="margin:6px 0 0">Se calculan con tus tests y sesiones guardadas. En dominadas cuentan las series en nivel Estrictas o el máximo del test.</p></div>';
   h+='<div class="card"><h2>Sesiones por semana</h2>'+barChart(vals,labs,3,'Sesiones por semana en las últimas 8 semanas')+'<p class="muted">Últimas 8 semanas. La línea marca la meta de 3.</p></div>';
 
   var opts='';Object.keys(EX).forEach(function(id){opts+='<option value="'+id+'"'+(id===chartEx?' selected':'')+'>'+esc(EX[id].n)+(id==='plancha-c'?' (casa)':'')+'</option>';});
@@ -528,10 +622,11 @@ function showTab(name){
 }
 function exportData(){
   try{
+    S.settings.backupAt=today();save();
     var blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});
     var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='constancia-respaldo-'+today()+'.json';
     document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},500);
-    $('bstatus').textContent='Respaldo descargado.';
+    $('bstatus').textContent='Respaldo descargado.';renderHoy();
   }catch(e){$('bstatus').textContent='No se pudo descargar el respaldo.';}
 }
 function importData(file){
@@ -541,7 +636,7 @@ function importData(file){
       var o=JSON.parse(fr.result);
       if(!o||typeof o!=='object'||!o.sessions||!o.settings){throw new Error('formato');}
       if(!window.confirm('Esto reemplaza los datos actuales de la app. ¿Continuar?')){return;}
-      localStorage.setItem(KEY,JSON.stringify(o));load();renderAll();toast('Respaldo restaurado.');
+      localStorage.setItem(KEY,JSON.stringify(o));load();renderAll();celebrate('Respaldo restaurado.');
     }catch(e){$('bstatus').textContent='El archivo no es un respaldo válido.';}
   };
   fr.readAsText(file);
@@ -558,15 +653,15 @@ document.addEventListener('click',function(ev){
     case 'resume':startPark(true);break;
     case 'discard':if(window.confirm('¿Descartar la sesión en curso?')){S.draft=null;save();renderHoy();}break;
     case 'por':porciones=+el.getAttribute('data-n');renderProt();break;
-    case 'food':var f=FOODS[+el.getAttribute('data-i')];addProt(f.n+(porciones>1?' ×'+porciones:''),f.g*porciones);toast('Agregado: '+r1(f.g*porciones)+' g');break;
+    case 'food':var f=FOODS[+el.getAttribute('data-i')];addProt(f.n+(porciones>1?' ×'+porciones:''),f.g*porciones);celebrate('Agregado: '+r1(f.g*porciones)+' g');break;
     case 'padd':
       var g=parseFloat($('p-g').value);if(!(g>0)){toast('Escribe los gramos de proteína.');break;}
-      addProt(($('p-n').value||'Otro alimento').trim()||'Otro alimento',g);break;
-    case 'pdel':var t=today();S.protein[t].splice(+el.getAttribute('data-i'),1);save();renderProt();renderHoy();break;
+      addProt(($('p-n').value||'Otro alimento').trim()||'Otro alimento',g);celebrate(null);break;
+    case 'pdel':var t=today();S.protein[t].splice(+el.getAttribute('data-i'),1);save();renderProt();renderHoy();renderProgreso();break;
     case 'savetest':
       var n=function(id){var v=parseFloat($(id).value);return isFinite(v)&&v>0?v:0;};
       S.tests[today()]={dom:n('t-dom'),fon:n('t-fon'),fle:n('t-fle'),sen:n('t-sen'),pla:n('t-pla')};
-      save();renderProgreso();renderHoy();toast('Test guardado.');break;
+      save();renderProgreso();renderHoy();celebrate('Test guardado.');break;
     case 'resetcycle':S.settings.cycleStart=ymd(mondayOf(new Date()));save();renderPlan();renderHoy();toast('Ciclo reiniciado.');break;
     case 'savesettings':
       var peso=parseFloat($('s-peso').value),meta=parseFloat($('s-meta').value),rest=parseFloat($('s-rest').value);
@@ -579,6 +674,11 @@ document.addEventListener('click',function(ev){
       if(rest>=15){S.settings.restSec=Math.round(rest);}
       save();renderAll();toast('Ajustes guardados.');break;
     case 'export':exportData();break;
+    case 'goto':
+      showTab(el.getAttribute('data-tab'));
+      var to=el.getAttribute('data-to'),tg=to&&$(to);
+      if(tg){tg.scrollIntoView({block:'center'});}
+      break;
   }
 });
 document.addEventListener('change',function(ev){
