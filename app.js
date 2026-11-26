@@ -62,7 +62,7 @@ var CYCLE=5;
 var S;
 function defaults(){
   return {v:2,settings:{peso:65.8,metaProt:105,metaAuto:true,cycleStart:null,levels:{},restSec:90,backupAt:null,celebrated:{},onboardDone:false},
-          sessions:{},tests:{},habits:{},protein:{},weights:{},draft:null};
+          sessions:{},tests:{},habits:{},protein:{},weights:{},meals:{},draft:null};
 }
 function load(){
   var d=defaults();
@@ -73,7 +73,7 @@ function load(){
       if(o&&typeof o==='object'){
         d.settings=Object.assign(d.settings,o.settings||{});
         d.sessions=o.sessions||{}; d.tests=o.tests||{}; d.habits=o.habits||{};
-        d.protein=o.protein||{}; d.weights=o.weights||{}; d.draft=o.draft||null;
+        d.protein=o.protein||{}; d.weights=o.weights||{}; d.meals=o.meals||{}; d.draft=o.draft||null;
         if(!d.settings.celebrated||typeof d.settings.celebrated!=='object'){d.settings.celebrated={};}
       }
     }
@@ -383,11 +383,22 @@ function newDraft(sess){
 function startPark(resume){
   if(!resume||!S.draft){S.draft=newDraft(curSess);save();}
   $('park').hidden=false; document.body.style.overflow='hidden';
-  primeAudio(); getWake(); renderPark(); tickRest();
+  primeAudio(); getWake(); renderPark(); tickRest(); tickSw();
 }
 function closePark(){
   $('park').hidden=true; document.body.style.overflow='';
-  clearInterval(restTimer);restTimer=null; dropWake(); renderHoy();
+  clearInterval(restTimer);restTimer=null; clearInterval(swTimer);swTimer=null; dropWake(); renderHoy();
+}
+var swTimer=null;
+function swElapsed(d){return d.sw?d.sw.acc+(d.sw.start?Date.now()-d.sw.start:0):0;}
+function tickSw(){
+  clearInterval(swTimer);swTimer=null;
+  if(!S.draft||!S.draft.sw||!S.draft.sw.start){return;}
+  swTimer=setInterval(function(){
+    var d=S.draft,el=$('swTime');
+    if(!d||!d.sw||!d.sw.start){clearInterval(swTimer);return;}
+    if(el){el.textContent=fmt(Math.floor(swElapsed(d)/1000));}
+  },250);
 }
 function curId(){var d=S.draft;return d.order[d.ei];}
 function startRest(){
@@ -456,6 +467,12 @@ function renderPark(){
   h+='<div class="dots" aria-label="Series">';
   for(var i=0;i<tot;i++){h+='<i class="'+(isNum((d.sets[id]||[])[i])?'d':(i===d.si?'c':''))+'"></i>';}
   h+='</div><div class="muted">Serie '+(d.si+1)+' de '+tot+(e.per?' (por pierna)':'')+'</div>';
+  if(e.unit==='seg'){
+    var swe=swElapsed(d),swr=!!(d.sw&&d.sw.start);
+    h+='<div class="rest sw'+(swr?' run':'')+'"><div class="muted">Cronómetro · meta '+r.lo+' a '+r.hi+' s</div><div class="time" id="swTime">'+fmt(Math.floor(swe/1000))+'</div>'+
+       '<div class="row" style="justify-content:center;margin-top:10px">'+(swr?'<button class="btn small" data-act="swstop">Detener</button>':'<button class="btn small" data-act="swstart">'+(swe>0?'Seguir':'Iniciar')+'</button>')+
+       (swe>0?'<button class="btn alt small" data-act="swreset">Reiniciar</button>':'')+'</div></div>';
+  }
   var step=e.unit==='seg'?5:1;
   h+='<div class="stepper"><button data-act="dec" aria-label="Menos">−</button>'+
      '<div class="val" id="curVal">'+d.cur+'<small>'+(e.unit==='seg'?'segundos':'repeticiones')+'</small></div>'+
@@ -479,9 +496,12 @@ function parkAction(act,el){
   var id=d.stage==='work'?curId():null,step=id&&EX[id].unit==='seg'?5:1;
   if(act==='inc'){d.cur=d.cur+step;}
   else if(act==='dec'){d.cur=Math.max(0,d.cur-step);}
-  else if(act==='done'){primeAudio();d.sets[id][d.si]=d.cur;advance();}
+  else if(act==='done'){primeAudio();if(d.sw){if(d.sw.start){d.cur=Math.round(swElapsed(d)/1000);}d.sw=null;}d.sets[id][d.si]=d.cur;advance();}
+  else if(act==='swstart'){primeAudio();d.sw=d.sw||{acc:0,start:null};d.sw.start=Date.now();d.rest=null;}
+  else if(act==='swstop'){if(d.sw&&d.sw.start){d.sw.acc+=Date.now()-d.sw.start;d.sw.start=null;d.cur=Math.max(0,Math.round(d.sw.acc/1000));}}
+  else if(act==='swreset'){d.sw=null;}
   else if(act==='undo'){
-    var ei=d.ei,si=d.si;
+    d.sw=null;var ei=d.ei,si=d.si;
     if(d.stage==='end'){ei=d.order.length-1;si=setsFor(d.order[ei])-1;}
     else if(si>0){si--;}else if(ei>0){ei--;si=setsFor(d.order[ei])-1;}
     // buscar la última serie registrada hacia atrás
@@ -494,7 +514,7 @@ function parkAction(act,el){
     if(!found){return;}
     d.ei=ei;d.si=si;d.stage='work';d.cur=d.sets[d.order[ei]][si];d.sets[d.order[ei]][si]=null;d.rest=null;
   }
-  else if(act==='skipex'){d.ei++;d.si=0;if(d.ei>=d.order.length){d.stage='end';d.rest=null;}else{d.cur=suggest(curId(),0);d.rest=null;}}
+  else if(act==='skipex'){d.sw=null;d.ei++;d.si=0;if(d.ei>=d.order.length){d.stage='end';d.rest=null;}else{d.cur=suggest(curId(),0);d.rest=null;}}
   else if(act==='toend'){d.stage='end';d.rest=null;}
   else if(act==='skiprest'){d.rest=null;}
   else if(act==='rpe'){d.rpe=+el.getAttribute('data-v');}
@@ -515,7 +535,7 @@ function parkAction(act,el){
     S.sessions[d.date+'_'+d.sess]={date:d.date,sess:d.sess,sets:sets,levels:d.levels,note:d.note,rpe:d.rpe||null,ts:Date.now()};
     S.draft=null;save();closePark();renderProgreso();celebrate('Sesión guardada.');return;
   }
-  save();renderPark();tickRest();
+  save();renderPark();tickRest();tickSw();
 }
 
 /* ================= Render: Proteína ================= */
@@ -551,6 +571,110 @@ function renderProt(){
 function addProt(n,g){
   var t=today(); S.protein[t]=S.protein[t]||[];
   S.protein[t].push({n:n,g:g,ts:Date.now()}); save(); renderProt(); renderHoy(); renderProgreso();
+}
+
+/* ================= Render: Comida ================= */
+var CATS={
+  fruta:'Fruta',verdura:'Verduras',legumbre:'Legumbres',integral:'Integrales y avena',proteina:'Proteína (carnes, huevos, pescado)',
+  lacteo:'Lácteos',sano:'Frutos secos y palta',refinado:'Pan blanco, arroz y fideos',batido:'Batido casero',
+  comida_rapida:'Comida rápida',fritura:'Frituras',dulce:'Dulces y postres',bebida_azucarada:'Bebidas azucaradas',
+  procesado:'Embutidos y snacks de bolsa',alcohol:'Alcohol',otro:'Otro (no se analiza)'
+};
+var QUICK=[
+  ['Fruta (1 porción)','fruta'],['Verduras o ensalada (1 plato)','verdura'],['Batido de frutas casero','batido'],['Batido de proteína','proteina'],
+  ['Legumbres (1 plato)','legumbre'],['Avena o pan integral','integral'],['Frutos secos o palta','sano'],['Pollo, pescado o huevos','proteina'],
+  ['Yogurt o leche','lacteo'],['Pan blanco, arroz o fideos','refinado'],['Hamburguesa','comida_rapida'],['Completo o pizza','comida_rapida'],
+  ['Papas fritas o fritura','fritura'],['Helado, chocolate o galletas','dulce'],['Bebida o jugo envasado','bebida_azucarada'],
+  ['Batido con helado o azúcar','bebida_azucarada'],['Vienesas, jamón o embutidos','procesado'],['Snack de bolsa','procesado'],['Cerveza, vino o trago','alcohol']
+];
+function rx(l){return new RegExp('\\b('+l+')(s|es)?\\b');}
+var CLS=[
+  ['alcohol',rx('cerveza|chela|vino|pisco|piscola|ron|vodka|whisky|tequila|trago|cocktail|coctel|champagne|espumante|terremoto')],
+  ['bebida_azucarada',rx('bebida|gaseosa|coca|coca cola|fanta|sprite|pepsi|energetica|monster|red bull|redbull|nectar|jugo envasado|jugo en caja|te helado|ice tea')],
+  ['comida_rapida',rx('hamburguesa|mcdonald|macdonald|mc donald|mac donald|burger|whopper|big mac|kfc|pizza|completo|hot dog|hotdog|nugget|shawarma|kebab|taco|domino')],
+  ['fritura',rx('frito|frita|apanado|apanada|milanesa|sopaipilla|churro|chicharron|calzon roto')],
+  ['dulce',rx('helado|chocolate|galleta|torta|kuchen|dulce|caramelo|alfajor|nutella|postre|donut|berlin|brownie|cupcake|manjar|gomita|golosina|bombon|queque|pastel')],
+  ['procesado',rx('vienesa|salchicha|jamon|salame|longaniza|chorizo|mortadela|pate|bacon|tocino|snack|ramita|cheetos|doritos|lays|papas de bolsa|chip')],
+  ['fruta',rx('manzana|platano|banana|naranja|mandarina|pera|uva|frutilla|sandia|melon|durazno|kiwi|fruta|cereza|arandano|mango|pina|ciruela|damasco|higo|papaya')],
+  ['verdura',rx('ensalada|verdura|lechuga|tomate|zanahoria|brocoli|espinaca|zapallo|pepino|repollo|coliflor|pimenton|apio|betarraga|acelga|cebolla|zapallito|berenjena|champinon')],
+  ['legumbre',rx('lenteja|poroto|garbanzo|arveja|soya|hummus')],
+  ['integral',rx('integral|avena|quinoa|centeno')],
+  ['proteina',rx('pollo|pavo|pescado|salmon|atun|merluza|reineta|jurel|sardina|huevo|carne|bistec|lomo|vacuno|cerdo|camaron|marisco|tofu|proteina|clara')],
+  ['lacteo',rx('leche|yogurt|yogur|queso|requeson|kefir')],
+  ['sano',rx('palta|nuez|nueces|almendra|mani|castana|pistacho|aceite de oliva|semilla|chia|linaza')],
+  ['refinado',rx('pan|marraqueta|hallulla|arroz|fideo|tallarin|pasta|papa')]
+];
+function classify(name){
+  var t=String(name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(),i;
+  for(i=0;i<CLS.length;i++){if(CLS[i][1].test(t)){return CLS[i][0];}}
+  return null;
+}
+function mealsOn(k){return S.meals[k]||[];}
+function catCounts(from,days){
+  var c={},logged=0,i,d,k,arr;
+  for(i=0;i<days;i++){d=new Date();d.setDate(d.getDate()-from-i);k=ymd(d);arr=mealsOn(k);
+    if(arr.length){logged++;}
+    arr.forEach(function(m){c[m.cat]=(c[m.cat]||0)+(m.q||1);});}
+  c._logged=logged;return c;
+}
+function fvOf(c){return (c.fruta||0)+(c.verdura||0)+Math.min(c.batido||0,1);}
+function analyze(){
+  var c=catCounts(0,7),out=[],rap=(c.comida_rapida||0)+(c.fritura||0);
+  function add(tone,title,why,tip){out.push({tone:tone,title:title,why:why,tip:tip});}
+  if(rap>=3){add('warn','Comida rápida y frituras: '+rap+' veces en 7 días',
+    'Traen muchas calorías, grasa y sal en poco volumen. Después puedes sentir pesadez, sueño y digestión lenta. Una vez no engorda, pero si se repite semana tras semana el exceso de calorías sube de peso y, con los años, aumenta el riesgo de obesidad, presión alta y colesterol alto.',
+    'Déjalas para 1 vez por semana. Si comes en un local de comida rápida, elige tamaño chico, sin papas grandes ni bebida, y compensa con fruta y verduras el resto del día.');}
+  if((c.bebida_azucarada||0)>=3){add('warn','Bebidas azucaradas: '+c.bebida_azucarada+' veces en 7 días',
+    'El azúcar líquida da un pico de energía y después un bajón con hambre y antojos, y las calorías no llenan. La OMS pide que el azúcar libre sea menos del 10% de las calorías del día (unos 50 g con 2.000 kcal), y una lata de bebida normal suele aportar más de 30 g.',
+    'Cámbiala por agua, agua con gas o té sin azúcar. Si la tomas, que sea ocasional y chica.');}
+  if((c.dulce||0)>=4){add('warn','Dulces y postres: '+c.dulce+' veces en 7 días',
+    'Suben y bajan el azúcar en la sangre: energía por un rato y luego cansancio y ganas de más dulce. En exceso suman calorías sin saciar.',
+    'Elige un día fijo para el antojo y, el resto, fruta, yogurt natural o frutos secos.');}
+  if((c.procesado||0)>=3){add('warn','Embutidos y snacks de bolsa: '+c.procesado+' veces en 7 días',
+    'Tienen mucha sal, que retiene líquido, puede hincharte y subir la presión (la OMS recomienda menos de 5 g de sal al día). Además la IARC, agencia de la OMS, clasifica las carnes procesadas como cancerígenas para las personas (grupo 1, cáncer colorrectal), y el riesgo sube con la cantidad. El riesgo individual sigue siendo pequeño.',
+    'Cambia vienesas y jamón por pollo, atún, huevo o legumbres, y el snack de bolsa por frutos secos sin sal.');}
+  if((c.alcohol||0)>=3){add('warn','Alcohol: '+c.alcohol+' veces en 7 días',
+    'Empeora el sueño, deshidrata y suma calorías sin nutrientes. Puedes sentir cansancio y peor ánimo al día siguiente, y recuperas menos del entrenamiento.',
+    'Baja la frecuencia, alterna con agua y evita tomar antes de dormir.');}
+  var lg=c._logged,fv=fvOf(c)/Math.max(lg,1);
+  if(lg>=3&&fv<3){add('warn','Poca fruta y verdura: '+r1(fv)+' porciones al día en promedio',
+    'Con poca fibra te sientes menos lleno, puedes tener estreñimiento y tu energía es menos estable. La OMS recomienda al menos 400 g al día, unas 5 porciones, sin contar papas.',
+    'Suma una fruta en el desayuno, un plato de ensalada al almuerzo y verduras cocidas en la cena.');}
+  else if(lg>=3&&fv>=4.5){add('ok','Buena base de fruta y verdura','Estás cerca o sobre las 5 porciones diarias que recomienda la OMS. Eso ayuda a la saciedad, la digestión y la energía estable.','Mantenlo. Sigue variando colores y tipos.');}
+  if(lg>=3&&!out.length){add('ok','Sin alertas esta semana','No se repiten alimentos que convenga cuidar.','Sigue registrando para detectar cambios a tiempo.');}
+  return {alerts:out,logged:lg};
+}
+var cant=1;
+function renderComida(){
+  var t=today(),td=catCounts(0,1),fv=fvOf(td),pct=clamp(fv/5*100,0,100),es=mealsOn(t);
+  var h='<div class="card"><h2>Fruta y verdura de hoy</h2><div class="big">'+fv+' <span style="font-size:22px;color:var(--muted)">de 5 porciones</span></div>'+
+    '<div class="bar'+(fv>=5?' over':'')+'"><i style="width:'+pct+'%"></i></div>'+
+    '<div class="muted">'+(fv>=5?'Meta cumplida.':'Meta de la OMS: al menos 400 g al día, unas 5 porciones (sin contar papas). Un batido cuenta como máximo 1.')+'</div></div>';
+  h+='<div class="card"><h2>Agregar lo que comí</h2><div class="muted">Cantidad</div><div class="chips" role="group" aria-label="Cantidad">';
+  [1,2,3,4].forEach(function(n){h+='<button class="chip" data-act="cant" data-n="'+n+'" aria-pressed="'+(n===cant)+'">'+n+'</button>';});
+  h+='</div><div class="foods">';
+  QUICK.forEach(function(f,i){h+='<button class="food" data-act="mfood" data-i="'+i+'">'+esc(f[0])+'</button>';});
+  var opts='<option value="">Detectar sola</option>';Object.keys(CATS).forEach(function(k){opts+='<option value="'+k+'">'+esc(CATS[k])+'</option>';});
+  h+='</div><h3>Otra comida</h3><div class="fields"><label class="lbl">¿Qué comiste?<input type="text" id="m-n" placeholder="Ej: hamburguesa de McDonald\'s"></label>'+
+     '<label class="lbl">Categoría<select id="m-c">'+opts+'</select></label></div>'+
+     '<button class="btn alt" data-act="madd">Agregar</button></div>';
+  h+='<div class="card"><h2>Registro de hoy</h2>';
+  if(!es.length){h+='<p class="muted">Aún no agregas nada.</p>';}
+  es.forEach(function(m,i){h+='<div class="entry"><span>'+esc(m.n)+(m.q>1?' ×'+m.q:'')+'<br><span class="muted">'+esc(CATS[m.cat]||'Otro')+'</span></span><button data-act="mdel" data-i="'+i+'">Quitar</button></div>';});
+  h+='</div>';
+  var a=analyze();
+  h+='<div class="card"><h2>Análisis de la semana</h2>';
+  if(!a.logged){h+='<p class="muted">Registra lo que comes para ver el análisis.</p>';}
+  else{
+    if(a.logged<3){h+='<p class="muted">Llevas '+a.logged+(a.logged===1?' día registrado':' días registrados')+'. Con 3 o más el análisis es más confiable.</p>';}
+    a.alerts.forEach(function(x){h+='<div class="msg'+(x.tone==='warn'?' warn':'')+'"><b>'+esc(x.title)+'</b><p><b>Cómo te puede afectar:</b> '+esc(x.why)+'</p><p><b>Qué hacer:</b> '+esc(x.tip)+'</p></div>';});
+    if(!a.alerts.length){h+='<p class="muted">Aún no hay alertas con lo registrado.</p>';}
+  }
+  h+='<p class="muted" style="margin:12px 0 0">Orientación general según recomendaciones de la OMS. Importa el patrón de varios días, no una comida suelta. No reemplaza a un nutricionista.</p></div>';
+  $('sec-comida').innerHTML=h;
+}
+function addMeal(n,cat,q){
+  var t=today();S.meals[t]=S.meals[t]||[];S.meals[t].push({n:n,cat:cat,q:q,ts:Date.now()});save();renderComida();
 }
 
 /* ================= Render: Progreso ================= */
@@ -659,7 +783,7 @@ function renderPlan(){
 
 /* ================= Eventos ================= */
 function showTab(name){
-  ['hoy','prot','progreso','plan'].forEach(function(t){$('sec-'+t).classList.toggle('on',t===name);$('t-'+t).setAttribute('aria-selected',t===name?'true':'false');});
+  ['hoy','prot','comida','progreso','plan'].forEach(function(t){$('sec-'+t).classList.toggle('on',t===name);$('t-'+t).setAttribute('aria-selected',t===name?'true':'false');});
   try{history.replaceState(null,'','#'+name);}catch(e){}
   window.scrollTo(0,0);
 }
@@ -707,6 +831,15 @@ document.addEventListener('click',function(ev){
       save();renderAll();toast('Peso guardado.');break;
     case 'sdel':
       if(window.confirm('¿Borrar esta sesión del historial?')){delete S.sessions[el.getAttribute('data-k')];save();renderProgreso();renderHoy();toast('Sesión borrada.');}break;
+    case 'cant':cant=+el.getAttribute('data-n');renderComida();break;
+    case 'mfood':var q=QUICK[+el.getAttribute('data-i')];addMeal(q[0],q[1],cant);toast('Agregado: '+q[0]);break;
+    case 'madd':
+      var mn=($('m-n').value||'').trim(),mc=$('m-c').value;
+      if(!mn){toast('Escribe qué comiste.');break;}
+      if(!mc){mc=classify(mn);}
+      if(!mc){toast('No pude clasificarlo. Elige una categoría.');break;}
+      addMeal(mn,mc,cant);toast('Agregado.');break;
+    case 'mdel':S.meals[today()].splice(+el.getAttribute('data-i'),1);save();renderComida();break;
     case 'por':porciones=+el.getAttribute('data-n');renderProt();break;
     case 'food':var f=FOODS[+el.getAttribute('data-i')];addProt(f.n+(porciones>1?' ×'+porciones:''),f.g*porciones);celebrate('Agregado: '+r1(f.g*porciones)+' g');break;
     case 'padd':
@@ -748,17 +881,17 @@ document.addEventListener('input',function(ev){
   if(ev.target.id==='pnote'&&S.draft){S.draft.note=ev.target.value;save();}
 });
 document.addEventListener('visibilitychange',function(){
-  if(document.visibilityState==='visible'&&S.draft&&!$('park').hidden){getWake();tickRest();}
+  if(document.visibilityState==='visible'&&S.draft&&!$('park').hidden){getWake();tickRest();tickSw();}
 });
 
 /* ================= Inicio ================= */
-function renderAll(){renderHoy();renderProt();renderProgreso();renderPlan();}
+function renderAll(){renderHoy();renderProt();renderComida();renderProgreso();renderPlan();}
 function init(){
   load();
   var f=new Date();
   $('fecha').textContent=DIAS[(f.getDay()+6)%7]+' '+f.getDate()+'/'+pad(f.getMonth()+1)+'/'+f.getFullYear();
   var h0=(location.hash||'').replace('#','');
-  if(['hoy','prot','progreso','plan'].indexOf(h0)>=0){showTab(h0);}
+  if(['hoy','prot','comida','progreso','plan'].indexOf(h0)>=0){showTab(h0);}
   renderAll();
   try{if(navigator.storage&&navigator.storage.persist){navigator.storage.persist();}}catch(e){}
   if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost')){
