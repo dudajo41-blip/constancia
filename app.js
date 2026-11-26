@@ -810,6 +810,52 @@ function addMeal(n,cat,q){
   var t=today();S.meals[t]=S.meals[t]||[];S.meals[t].push({n:n,cat:cat,q:q,ts:Date.now()});save();renderComida();
 }
 
+/* ================= Resumen para compartir con una IA ================= */
+var aiText=null;
+function buildSummary(){
+  var L=[],t=today(),ci=cycleInfo(),ph=PHASES[ci.phase],i,d,k;
+  L.push('Eres entrenador de calistenia y nutricionista deportivo. Analiza este resumen de mis últimos 28 días en la app Constancia y responde en español de Chile, directo:');
+  L.push('1) Qué va bien. 2) Qué mejorar. 3) Si debo mantener, avanzar de fase o hacer una semana suave, y por qué. 4) Ajustes concretos para las próximas 2 semanas.');
+  L.push('Usa solo estos datos. No inventes información que no esté aquí y dime qué datos faltan. No des diagnósticos médicos; si hay dolor, sugiere orientación profesional.');
+  L.push('');
+  L.push('RESUMEN (fecha '+t+')');
+  L.push('Fase: '+ph.n+', semana '+ci.week+(ci.easy?' (semana suave activada)':'')+'. Objetivo de esfuerzo: '+ph.rir+'.');
+  L.push('Peso registrado en ajustes: '+S.settings.peso+' kg. Meta de proteína: '+S.settings.metaProt+' g al día.');
+  L.push('Plan: A sábado (parque, tirón y piernas), B domingo (parque, empuje y core), C miércoles o jueves (casa, 15 a 20 min).');
+  L.push('');
+  var counts=weekCounts(),mon=mondayOf(new Date()),wk=[];
+  for(i=3;i>=0;i--){d=new Date(mon.getFullYear(),mon.getMonth(),mon.getDate()-7*i);wk.push(ymd(d)+': '+(counts[ymd(d)]||0));}
+  L.push('SESIONES POR SEMANA (lunes: cantidad de 3 planificadas): '+wk.join(' | '));
+  L.push('');
+  L.push('SESIONES (últimos 28 días). RIR: 5=5 o más en reserva, 3=3 a 4, 1=1 a 2, 0=ninguna.');
+  var ss=sessionsList().filter(function(x){return daysSince(x.date)<=28;}),any=false;
+  ss.forEach(function(x){
+    any=true;
+    var parts=Object.keys(x.sets||{}).map(function(id){
+      var e=EX[id],nm=e?e.n:id,lv=(e&&e.lad&&x.levels&&x.levels[id]!==undefined)?' ['+LAD[e.lad][x.levels[id]].n+']':'';
+      var extra=[];if(x.rir&&isNum(x.rir[id])){extra.push('RIR '+x.rir[id]);}if(x.tech&&x.tech[id]){extra.push('técnica '+(x.tech[id]==='ok'?'buena':'mejorable'));}
+      return nm+lv+': '+x.sets[id].join('-')+(e&&e.unit==='seg'?' s':'')+(extra.length?' ('+extra.join(', ')+')':'');
+    });
+    L.push('- '+x.date+' sesión '+x.sess+(x.rv>=2?'':' (rutina anterior)')+': '+parts.join('; ')+(x.rpe?'. Esfuerzo: '+RPE[x.rpe]:'')+(x.pain?'. Molestias: '+['','leve','dolor'][x.pain]:'')+(x.note?'. Nota: '+String(x.note).slice(0,150):''));
+  });
+  if(!any){L.push('- Sin sesiones guardadas en este período.');}
+  L.push('');
+  var wl=[];
+  for(i=27;i>=0;i--){d=new Date();d.setDate(d.getDate()-i);k=ymd(d);if(isNum(S.weights[k])){wl.push(k+': '+S.weights[k]+' kg');}}
+  L.push('PESO (28 días): '+(wl.length?wl.join(' | '):'sin registros')+(avgW(0,7)!==null?'. Promedio últimos 7 días: '+avgW(0,7)+' kg':'')+'.');
+  var pd=0,pn=0,pm=0;
+  for(i=0;i<28;i++){d=new Date();d.setDate(d.getDate()-i);var pt=protTotal(ymd(d));if(pt>0){pd+=pt;pn++;if(pt>=S.settings.metaProt){pm++;}}}
+  L.push('PROTEÍNA (28 días): '+(pn?pn+' días registrados, promedio '+Math.round(pd/pn)+' g, meta cumplida en '+pm+' de esos días.':'sin registros.'));
+  var c=catCounts(0,7),cl=Object.keys(c).filter(function(x){return x!=='_logged';}).map(function(x){return (CATS[x]||x)+': '+c[x];});
+  L.push('COMIDA (7 días, '+c._logged+' días con registro): '+(cl.length?cl.join(', ')+'. Fruta y verdura promedio: '+r1(fvOf(c)/Math.max(c._logged,1))+' porciones al día.':'sin registros.'));
+  var hs=0,hn=0;
+  for(i=0;i<14;i++){d=new Date();d.setDate(d.getDate()-i);var hb=S.habits[ymd(d)];if(hb){hn++;if(hb.sueno){hs++;}}}
+  L.push('SUEÑO (14 días): '+(hn?'dormí 7 horas o más en '+hs+' de '+hn+' días con registro.':'sin registros.'));
+  var lt=lastTest(),tk=Object.keys(S.tests).sort();
+  if(lt){L.push('ÚLTIMO TEST ('+tk[tk.length-1]+'): dominadas '+lt.dom+', fondos '+lt.fon+', flexiones '+lt.fle+', sentadillas '+lt.sen+', plancha '+lt.pla+' s.');}
+  return L.join('\n');
+}
+
 /* ================= Render: Progreso ================= */
 var chartEx='dom-pro';
 function renderProgreso(){
@@ -884,6 +930,11 @@ function renderProgreso(){
     var e=EX[id],o='';LAD[e.lad].forEach(function(l,i){o+='<option value="'+i+'"'+(i===levelOf(id)?' selected':'')+'>'+esc(l.n)+'</option>';});
     h+='<label class="lbl" style="margin-top:10px">'+esc(e.n)+'<select data-act="level" data-id="'+id+'">'+o+'</select></label>';
   });
+  h+='</div>';
+  h+='<div class="card"><h2>Compartir con una IA</h2><p class="muted" style="margin:0">Genera un resumen de tus últimos 28 días para pegarlo en un chat con Claude u otra IA y recibir una opinión de tu progreso. Revisa el texto antes de compartirlo: solo sale de la app si tú lo copias.</p>'+
+     '<button class="btn" data-act="aigen">'+(aiText?'Actualizar resumen':'Generar resumen')+'</button>';
+  if(aiText){h+='<textarea id="ai-txt" readonly rows="10" style="margin-top:10px;min-height:180px;font-size:13px">'+esc(aiText)+'</textarea>'+
+     '<button class="btn alt" data-act="aicopy">Copiar resumen</button>'+(navigator.share?'<button class="btn alt" data-act="aishare">Compartir…</button>':'');}
   h+='</div>';
   $('sec-progreso').innerHTML=h;
 }
@@ -1021,6 +1072,13 @@ document.addEventListener('click',function(ev){
       if(isFinite(rest)){S.settings.restAdj=clamp(Math.round(rest),-30,90);}
       save();renderAll();toast('Ajustes guardados.');break;
     case 'export':exportData();break;
+    case 'aigen':aiText=buildSummary();renderProgreso();toast('Resumen listo. Revísalo y cópialo.');break;
+    case 'aicopy':
+      (function(){var ta=$('ai-txt'),txt=aiText||'';
+        function fb(){try{ta.focus();ta.select();var okc=document.execCommand&&document.execCommand('copy');toast(okc?'Copiado.':'Selecciona el texto y cópialo a mano.');}catch(e){toast('Selecciona el texto y cópialo a mano.');}}
+        if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(txt).then(function(){toast('Copiado. Pégalo en tu chat.');}).catch(fb);}else{fb();}
+      })();break;
+    case 'aishare':try{navigator.share({title:'Resumen de Constancia',text:aiText||''}).catch(function(){});}catch(e){}break;
     case 'undoimport':
       try{var pv=localStorage.getItem(KEY+'-prev');if(pv&&window.confirm('Esto vuelve a los datos que tenías antes de restaurar. ¿Continuar?')){localStorage.setItem(KEY,pv);localStorage.removeItem(KEY+'-prev');load();renderAll();toast('Datos anteriores recuperados.');}}catch(e){}
       break;
