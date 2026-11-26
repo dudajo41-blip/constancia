@@ -4,13 +4,14 @@ App personal de entrenamiento (calistenia) y contador de proteína. Funciona sin
 
 ## Qué incluye
 
-- **Hoy:** sesión del día (A sábado, B domingo, C entre semana), última vez de cada ejercicio, meta sugerida y hábitos.
-- **Modo parque:** un ejercicio a la vez, botones grandes, cronómetro de descanso con sonido y vibración, la pantalla no se apaga.
-- **Progresión:** meta de hoy = última vez + 1 (doble progresión). Escalera de niveles en dominadas, fondos y remo.
-- **Ciclo de 5 semanas:** 4 de progresión y 1 suave (una serie menos por ejercicio).
-- **Proteína:** contador diario contra la meta (1,6 g por kilo), alimentos comunes y gráfico de 7 días.
-- **Progreso:** sesiones por semana, evolución por ejercicio, test de partida, mejores series.
-- **Respaldo:** descargar y restaurar los datos en un archivo.
+- **Hoy:** fase y semana, sesión del día (A sábado y B domingo en el parque, C en casa entre semana), última vez de cada ejercicio, meta sugerida y hábitos. Sin deuda por sesiones perdidas.
+- **Modo parque:** un ejercicio a la vez, cronómetro de descanso por ejercicio (ampliable), cronómetro para planchas, registro de RIR y técnica al terminar cada ejercicio, sustituir ejercicio, deshacer y borrador recuperable.
+- **Progresión:** doble progresión condicionada. La meta solo sube si la última sesión tuvo buena técnica y RIR suficiente; se sube de variante tras dos sesiones seguidas en el techo del rango. Las sesiones de la rutina nueva llevan `rv:2`; el historial anterior se conserva.
+- **Fases:** Readaptación, Construcción y Desarrollo, que cambias tú según técnica y recuperación. Semana suave opcional (sin descarga obligatoria).
+- **Proteína:** contador diario contra la meta (1,6 g por kilo), por comida del día, alimentos comunes, frecuentes y gráfico de 7 días.
+- **Comida:** registro de lo que comes y observaciones semanales (no son diagnósticos).
+- **Progreso:** metas, sesiones y series por semana, evolución por ejercicio, tendencia de peso, test, mejores series.
+- **Respaldo:** descargar y restaurar; antes de restaurar se valida el archivo y se guarda una copia de los datos actuales.
 
 ## Archivos
 
