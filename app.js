@@ -79,7 +79,7 @@ var KEY='constancia-v2';
 var S;
 function defaults(){
   return {v:2,settings:{peso:65.8,metaProt:105,metaAuto:true,cycleStart:null,levels:{},restSec:90,backupAt:null,celebrated:{},onboardDone:false,phase:1,phaseStart:null,easyWeek:false,restAdj:0},
-          sessions:{},tests:{},habits:{},protein:{},weights:{},meals:{},draft:null};
+          sessions:{},tests:{},habits:{},protein:{},weights:{},meals:{},reflex:{rt:[],drills:{},ladder:{},fear:[]},draft:null};
 }
 function load(){
   var d=defaults();
@@ -90,7 +90,7 @@ function load(){
       if(o&&typeof o==='object'){
         d.settings=Object.assign(d.settings,o.settings||{});
         d.sessions=o.sessions||{}; d.tests=o.tests||{}; d.habits=o.habits||{};
-        d.protein=o.protein||{}; d.weights=o.weights||{}; d.meals=o.meals||{}; d.draft=o.draft||null;
+        d.protein=o.protein||{}; d.weights=o.weights||{}; d.meals=o.meals||{}; d.reflex=Object.assign(d.reflex,(o.reflex&&typeof o.reflex==='object')?o.reflex:{}); if(!Array.isArray(d.reflex.rt)){d.reflex.rt=[];} if(!Array.isArray(d.reflex.fear)){d.reflex.fear=[];} if(!d.reflex.drills||typeof d.reflex.drills!=='object'){d.reflex.drills={};} if(!d.reflex.ladder||typeof d.reflex.ladder!=='object'){d.reflex.ladder={};} d.draft=o.draft||null;
         if(!d.settings.celebrated||typeof d.settings.celebrated!=='object'){d.settings.celebrated={};}
       }
     }
@@ -431,6 +431,7 @@ function renderHoy(){
   h+='<div class="card"><h2>Hábitos de hoy</h2>'+
      '<label class="hab"><input type="checkbox" data-act="hab" data-k="sueno"'+(hb.sueno?' checked':'')+'><span>Dormí al menos 7 horas</span></label>'+
      '<label class="hab"><input type="checkbox" data-act="hab" data-k="oficina"'+(hb.oficina?' checked':'')+'><span>Hice mi ronda de la oficina</span></label></div>';
+  h+='<div class="card"><h2>Reflejos y miedo a los golpes</h2><p class="muted" style="margin:0">Test de reacción, esquivas con señal aleatoria y una escalera para perder el miedo de a poco. Sin contacto: lo que implique recibir golpes hazlo con un entrenador.</p><button class="btn alt" data-act="refl">Abrir</button></div>';
   $('sec-hoy').innerHTML=h;
 }
 
@@ -810,6 +811,119 @@ function addMeal(n,cat,q){
   var t=today();S.meals[t]=S.meals[t]||[];S.meals[t].push({n:n,cat:cat,q:q,ts:Date.now()});save();renderComida();
 }
 
+/* ================= Reflejos y defensa ================= */
+var rMode='rt',rt={st:'idle',t0:0,times:[],timer:null};
+var dr={on:false,left:0,len:60,pace:'lento',cue:'',iv:null,ct:null,last:-1};
+var CUES=['Esquiva a la izquierda','Esquiva a la derecha','Agáchate','Guardia alta: bloquea','Retrocede un paso','Avanza con guardia'];
+var PACES={lento:[3000,5000],medio:[2000,3500],rapido:[1200,2500]};
+var LADDER=[
+  'Sombra: mueve los brazos y el cuerpo al aire, solo, sin nadie.',
+  'Defensa sin contacto: esquivas y guardia con las señales de esta app o frente a un espejo.',
+  'Con un compañero, a cámara muy lenta y sin impacto: te muestra el golpe, se detiene antes de tocar y tú esquivas o bloqueas.',
+  'Manoplas: tú golpeas las manoplas y sigues su movimiento, sin recibir golpes.',
+  'Contacto muy suave con equipo (guantes grandes, protector bucal, casco) y un entrenador mirando, a ritmo lento y acordado.',
+  'Sparring técnico ligero con reglas claras y entrenador.'
+];
+function openRefl(){$('refl').hidden=false;document.body.style.overflow='hidden';renderRefl();}
+function stopDrill(){clearInterval(dr.iv);clearTimeout(dr.ct);dr.iv=null;dr.ct=null;dr.on=false;dropWake();}
+function closeRefl(){stopDrill();clearTimeout(rt.timer);rt={st:'idle',t0:0,times:[],timer:null};$('refl').hidden=true;document.body.style.overflow='';renderHoy();}
+function rtStart(){
+  clearTimeout(rt.timer);rt.st='wait';renderRefl();
+  rt.timer=setTimeout(function(){rt.st='go';renderRefl();requestAnimationFrame(function(){rt.t0=performance.now();});},1500+Math.random()*2500);
+}
+function rtTap(){
+  if(rt.st==='wait'){clearTimeout(rt.timer);rt.st='early';renderRefl();return;}
+  if(rt.st==='go'){
+    var ms=Math.round(performance.now()-rt.t0);rt.times.push(ms);
+    if(rt.times.length>=5){
+      var avg=Math.round(rt.times.reduce(function(a,b){return a+b;},0)/rt.times.length),best=Math.min.apply(null,rt.times);
+      S.reflex.rt.push({d:today(),avg:avg,best:best,n:rt.times.length});S.reflex.rt=S.reflex.rt.slice(-60);save();rt.st='done';renderRefl();
+    }else{rt.st='between';renderRefl();rt.timer=setTimeout(rtStart,900);}
+    return;
+  }
+  if(rt.st==='early'||rt.st==='idle'){rtStart();}
+  else if(rt.st==='done'){rt.times=[];rtStart();}
+}
+function drUpdate(){var a=$('drT'),b=$('drCue');if(a){a.textContent=fmt(Math.max(0,dr.left));}if(b){b.textContent=dr.cue;}}
+function drSchedule(){
+  var p=PACES[dr.pace];
+  dr.ct=setTimeout(function(){
+    if(!dr.on){return;}
+    var i;do{i=Math.floor(Math.random()*CUES.length);}while(i===dr.last&&CUES.length>1);
+    dr.last=i;dr.cue=CUES[i];beep();try{if(navigator.vibrate){navigator.vibrate(80);}}catch(e){}
+    drUpdate();drSchedule();
+  },p[0]+Math.random()*(p[1]-p[0]));
+}
+function startDrill(){
+  stopDrill();dr.on=true;dr.left=dr.len;dr.cue='Guardia alta. Prepárate';dr.last=-1;primeAudio();getWake();renderRefl();
+  dr.iv=setInterval(function(){
+    dr.left--;
+    if(dr.left<=0){
+      stopDrill();S.reflex.drills[today()]=(S.reflex.drills[today()]||0)+1;save();beep();dr.cue='Ronda terminada';renderRefl();
+    }else{drUpdate();}
+  },1000);
+  drSchedule();
+}
+function renderRefl(){
+  var el=$('refl'),h='<div class="inner"><div class="ptop"><h2 style="margin:0">Reflejos y defensa</h2><button class="btn alt small" data-act="rclose">Salir</button></div>';
+  h+='<div class="chips" role="group" aria-label="Modo">';
+  [['rt','Test de reacción'],['dr','Esquivas'],['lad','Perder el miedo']].forEach(function(m){h+='<button class="chip" data-act="rmode" data-m="'+m[0]+'" aria-pressed="'+(rMode===m[0])+'">'+m[1]+'</button>';});
+  h+='</div>';
+  if(rMode==='rt'){
+    var cls='rtarea',txt='';
+    if(rt.st==='idle'){txt='Toca para empezar. Cuando la pantalla se ponga verde, toca lo más rápido que puedas.';}
+    else if(rt.st==='wait'){cls+=' wait';txt='Espera…';}
+    else if(rt.st==='go'){cls+=' go';txt='¡Ya!';}
+    else if(rt.st==='early'){txt='Muy pronto. Toca para repetir ese intento.';}
+    else if(rt.st==='between'){txt=rt.times[rt.times.length-1]+' ms';}
+    else if(rt.st==='done'){var av=Math.round(rt.times.reduce(function(a,b){return a+b;},0)/rt.times.length);txt='Promedio '+av+' ms. Mejor '+Math.min.apply(null,rt.times)+' ms. Toca para repetir.';}
+    h+='<div class="'+cls+'" role="button" tabindex="0" data-rt="1">'+esc(txt)+'</div>';
+    h+='<div class="muted">Intento '+Math.min(rt.times.length+(rt.st==='wait'||rt.st==='go'||rt.st==='early'||rt.st==='idle'?1:0),5)+' de 5.</div>';
+    var hist=S.reflex.rt.slice(-5);
+    if(hist.length){h+='<div class="card" style="margin:0"><b>Tus últimos promedios</b><div class="muted">'+hist.map(function(x){return x.d.slice(8)+'/'+x.d.slice(5,7)+': '+x.avg+' ms';}).join(' · ')+'</div></div>';}
+    h+='<p class="muted" style="margin:0">Mide tu reacción al toque en pantalla e incluye el retardo del teléfono: úsalo solo para compararte contigo mismo. Mejorar este número no garantiza mejores reflejos en un deporte o en una pelea; los estudios que revisé muestran poco traspaso desde pruebas genéricas. Lo más útil es practicar movimientos parecidos a la situación real, como en Esquivas.</p>';
+  }else if(rMode==='dr'){
+    h+='<div class="card" style="margin:0"><b>Esquivas con señal aleatoria</b><p class="muted" style="margin:4px 0 0">Mantén la guardia y, cuando aparezca la orden, haz el movimiento. Todo sin contacto y sin golpear nada.</p></div>';
+    h+='<div class="muted">Duración</div><div class="chips" role="group" aria-label="Duración">';
+    [30,60,90].forEach(function(v){h+='<button class="chip" data-act="drlen" data-v="'+v+'" aria-pressed="'+(dr.len===v)+'">'+v+' s</button>';});
+    h+='</div><div class="muted">Ritmo</div><div class="chips" role="group" aria-label="Ritmo">';
+    [['lento','Lento'],['medio','Medio'],['rapido','Rápido']].forEach(function(v){h+='<button class="chip" data-act="drpace" data-v="'+v[0]+'" aria-pressed="'+(dr.pace===v[0])+'">'+v[1]+'</button>';});
+    h+='</div>';
+    h+='<div class="rest sw'+(dr.on?' run':'')+'"><div class="time" id="drT">'+fmt(dr.on?dr.left:dr.len)+'</div><div class="pname" id="drCue" style="margin-top:8px;font-size:30px">'+esc(dr.cue||'Listo para empezar')+'</div></div>';
+    h+=dr.on?'<button class="btn warn" data-act="drstop">Detener</button>':'<button class="btn" data-act="drstart">Empezar ronda</button>';
+    var nr=S.reflex.drills[today()]||0;
+    h+='<div class="muted">'+(nr?'Rondas de hoy: '+nr+'. ':'')+'Empieza lento. Necesitas espacio libre, calzado cómodo y piso firme. Si te mareas o te duele la cabeza, para.</div>';
+  }else{
+    var cur=0;while(cur<LADDER.length&&S.reflex.ladder[cur]){cur++;}
+    h+='<div class="card" style="margin:0"><b>Escalera para perder el miedo</b><p class="muted" style="margin:4px 0 0">Es normal tener miedo a los golpes. Lo que suele funcionar en gimnasios es aprender técnica primero y subir la exposición de a poco, avisando a tu entrenador de lo que sientes. Marca cada paso cuando lo sientas tranquilo.</p></div>';
+    LADDER.forEach(function(t,i){
+      var dn=S.reflex.ladder[i];
+      h+='<div class="card" style="margin:0"><div class="row" style="flex-wrap:nowrap;align-items:flex-start"><button class="chip" data-act="lad" data-i="'+i+'" aria-pressed="'+(!!dn)+'" aria-label="Paso '+(i+1)+(dn?' hecho':' pendiente')+'">'+(dn?'✓':(i+1))+'</button><div><div'+(i===cur?' style="font-weight:700"':'')+'>'+esc(t)+'</div>'+
+         (dn?'<div class="muted">Hecho el '+dn.slice(8)+'/'+dn.slice(5,7)+'</div>':(i===cur?'<div class="muted">Tu paso actual.</div>':''))+(i>=2?'<div class="muted">Con entrenador y protección.</div>':'')+'</div></div></div>';
+    });
+    h+='<div class="card" style="margin:0"><b>¿Cuánto miedo sentiste hoy? (0 a 10)</b><div class="chips" role="group" aria-label="Miedo de 0 a 10">';
+    var tdf=S.reflex.fear.filter(function(x){return x.d===today();})[0];
+    for(var q=0;q<=10;q++){h+='<button class="chip" data-act="fear" data-v="'+q+'" aria-pressed="'+(tdf&&tdf.v===q)+'">'+q+'</button>';}
+    h+='</div>';
+    var fh=S.reflex.fear.slice(-5);
+    if(fh.length){h+='<div class="muted">Últimos registros: '+fh.map(function(x){return x.d.slice(8)+'/'+x.d.slice(5,7)+': '+x.v;}).join(' · ')+'</div>';}
+    h+='<div class="muted" style="margin-top:6px">Avanza de paso cuando el anterior te deje en 3 o menos y tu entrenador esté de acuerdo.</div></div>';
+    h+='<p class="muted" style="margin:0">Esta es una guía general basada en cómo suelen progresar los gimnasios de artes marciales, no un tratamiento clínico. Los pasos con contacto hazlos con un entrenador y equipo de protección. Evita golpes a la cabeza en práctica y para si hay mareo o dolor de cabeza. Si el miedo es muy intenso o viene de una mala experiencia, conversa con un profesional de salud mental.</p>';
+  }
+  h+='</div>';el.innerHTML=h;
+}
+function reflAction(act,el){
+  if(act==='rclose'){closeRefl();return;}
+  if(act==='rmode'){stopDrill();clearTimeout(rt.timer);if(rt.st==='wait'||rt.st==='go'||rt.st==='between'||rt.st==='early'){rt={st:'idle',t0:0,times:[],timer:null};}rMode=el.getAttribute('data-m');}
+  else if(act==='drlen'){if(!dr.on){dr.len=+el.getAttribute('data-v');}}
+  else if(act==='drpace'){dr.pace=el.getAttribute('data-v');}
+  else if(act==='drstart'){startDrill();return;}
+  else if(act==='drstop'){stopDrill();dr.cue='Ronda detenida';}
+  else if(act==='lad'){var i=+el.getAttribute('data-i');if(S.reflex.ladder[i]){delete S.reflex.ladder[i];}else{S.reflex.ladder[i]=today();}save();}
+  else if(act==='fear'){var v=+el.getAttribute('data-v');S.reflex.fear=S.reflex.fear.filter(function(x){return x.d!==today();});S.reflex.fear.push({d:today(),v:v});S.reflex.fear=S.reflex.fear.slice(-60);save();}
+  renderRefl();
+}
+
 /* ================= Resumen para compartir con una IA ================= */
 var aiText=null;
 function buildSummary(){
@@ -851,6 +965,8 @@ function buildSummary(){
   var hs=0,hn=0;
   for(i=0;i<14;i++){d=new Date();d.setDate(d.getDate()-i);var hb=S.habits[ymd(d)];if(hb){hn++;if(hb.sueno){hs++;}}}
   L.push('SUEÑO (14 días): '+(hn?'dormí 7 horas o más en '+hs+' de '+hn+' días con registro.':'sin registros.'));
+  var rr=S.reflex.rt.slice(-3),ff=S.reflex.fear.slice(-5),ld=Object.keys(S.reflex.ladder).length;
+  if(rr.length||ff.length||ld){L.push('REFLEJOS Y MIEDO A LOS GOLPES: '+(rr.length?'test de reacción (últimos): '+rr.map(function(x){return x.d+' '+x.avg+' ms';}).join(', ')+'. ':'')+(ff.length?'Miedo 0-10 (últimos): '+ff.map(function(x){return x.d+' '+x.v;}).join(', ')+'. ':'')+'Pasos de la escalera de exposición marcados: '+ld+' de '+LADDER.length+'.');}
   var lt=lastTest(),tk=Object.keys(S.tests).sort();
   if(lt){L.push('ÚLTIMO TEST ('+tk[tk.length-1]+'): dominadas '+lt.dom+', fondos '+lt.fon+', flexiones '+lt.fle+', sentadillas '+lt.sen+', plancha '+lt.pla+' s.');}
   return L.join('\n');
@@ -1022,8 +1138,10 @@ document.addEventListener('click',function(ev){
   if(tb){showTab(tb.getAttribute('data-tab'));return;}
   var el=ev.target.closest('[data-act]'); if(!el){return;}
   var act=el.getAttribute('data-act');
+  if($('refl')&&!$('refl').hidden&&$('refl').contains(el)){reflAction(act,el);return;}
   if($('park')&&!$('park').hidden&&$('park').contains(el)){parkAction(act,el);return;}
   switch(act){
+    case 'refl':openRefl();break;
     case 'sess':curSess=el.getAttribute('data-s');renderHoy();break;
     case 'start':startPark(false);break;
     case 'resume':startPark(true);break;
@@ -1098,6 +1216,13 @@ document.addEventListener('change',function(ev){
   else if(act==='phase'){S.settings.phase=+el.value;S.settings.phaseStart=ymd(mondayOf(new Date()));save();renderAll();toast('Fase: '+PHASES[phaseNo()].n+'.');}
   else if(act==='easy'){S.settings.easyWeek=el.checked;save();renderAll();toast(el.checked?'Semana suave activada.':'Semana suave desactivada.');}
   else if(act==='chartEx'){chartEx=el.value;renderProgreso();}
+});
+document.addEventListener('pointerdown',function(ev){
+  var a=ev.target.closest&&ev.target.closest('[data-rt]');
+  if(a&&$('refl')&&!$('refl').hidden){ev.preventDefault();rtTap();}
+});
+document.addEventListener('keydown',function(ev){
+  if((ev.key==='Enter'||ev.key===' ')&&ev.target.getAttribute&&ev.target.getAttribute('data-rt')){ev.preventDefault();rtTap();}
 });
 document.addEventListener('input',function(ev){
   if(ev.target.id==='pnote'&&S.draft){S.draft.note=ev.target.value;save();}

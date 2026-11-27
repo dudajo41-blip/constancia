@@ -145,3 +145,6 @@ details.warm summary{cursor:pointer;font-weight:600;font-size:14px;min-height:44
 .pl.ok{background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
 .rest .row{flex-wrap:wrap}
 ul.plain.muted{padding-left:20px}
+.rtarea{min-height:280px;border:2px solid var(--line);border-radius:14px;background:var(--card);display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;font:700 26px var(--display);cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:manipulation}
+.rtarea.wait{background:var(--warn);border-color:var(--warn);color:var(--accent-ink)}
+.rtarea.go{background:var(--ok);border-color:var(--ok);color:var(--accent-ink)}
